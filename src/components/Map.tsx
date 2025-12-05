@@ -109,10 +109,11 @@ export default function Map() {
     return saved ? JSON.parse(saved) : null;
   });
 
+  const [loadingLocation, setLoadingLocation] = useState(!userPos); // true if no saved location
   const [route, setRoute] = useState<LatLng[]>(() => {
     const savedRoute = localStorage.getItem("route");
     if (savedRoute) return JSON.parse(savedRoute);
-    return []; // start empty if no saved route
+    return [];
   });
 
   const [curvedRoute, setCurvedRoute] = useState<LatLng[]>(route);
@@ -122,7 +123,13 @@ export default function Map() {
   const distanceKm = getTotalDistanceKm(curvedRoute);
   const distanceMiles = kmToMiles(distanceKm);
 
-  // Initialize route on first load if no saved route
+  // Update userPos and stop loading when location is found
+  useEffect(() => {
+    if (!userPos) return;
+    setLoadingLocation(false);
+  }, [userPos]);
+
+  // Initialize route if no saved route
   useEffect(() => {
     const savedRoute = localStorage.getItem("route");
     if (userPos && !savedRoute) {
@@ -134,17 +141,15 @@ export default function Map() {
     }
   }, [userPos]);
 
-  // Update curved route asynchronously
+  // Update curved route as before...
   useEffect(() => {
     let cancelled = false;
-
     const run = async () => {
       if (route.length < 2) {
         setCurvedRoute(route);
         setRouteError(null);
         return;
       }
-
       setLoadingRoute(true);
       try {
         const curved = await fetchCurvedRoute(route);
@@ -156,7 +161,6 @@ export default function Map() {
         console.error(err);
         if (!cancelled) {
           setRouteError("Could not find route");
-          // Remove the last marker
           setRoute((prev) => {
             const newRoute = prev.slice(0, -1);
             localStorage.setItem("route", JSON.stringify(newRoute));
@@ -167,23 +171,21 @@ export default function Map() {
         if (!cancelled) setLoadingRoute(false);
       }
     };
-
     run();
-
     return () => {
       cancelled = true;
     };
   }, [route]);
 
   const addPoint = async (latlng: LatLng) => {
-    setRouteError(null); // clear previous error
+    setRouteError(null);
     const newRoute = [...route, latlng];
     setRoute(newRoute);
     localStorage.setItem("route", JSON.stringify(newRoute));
   };
 
   const removePoint = async (index: number) => {
-    if (index === 0) return; // cannot remove user location
+    if (index === 0) return;
     const newRoute = route.filter((_, i) => i !== index);
     setRoute(newRoute);
     localStorage.setItem("route", JSON.stringify(newRoute));
@@ -222,28 +224,26 @@ export default function Map() {
             key={i}
             position={pos}
             icon={markerIcon}
-            eventHandlers={{
-              click: () => removePoint(i),
-            }}
-            zIndexOffset={i === 0 ? 999999 : 0} // user location on top
+            eventHandlers={{ click: () => removePoint(i) }}
+            zIndexOffset={i === 0 ? 999999 : 0}
           />
         ))}
 
         {curvedRoute.length > 1 && (
           <Polyline
             positions={curvedRoute}
-            pathOptions={{
-              color: "red",
-              weight: 4,
-              dashArray: "10,10",
-            }}
+            pathOptions={{ color: "red", weight: 4, dashArray: "10,10" }}
           />
         )}
       </MapContainer>
 
       <div className="mt-2 flex justify-between items-center">
         <div>
-          {routeError ? (
+          {loadingLocation ? (
+            <span className="text-red-600 font-semibold">
+              Loading location...
+            </span>
+          ) : routeError ? (
             <span className="text-red-600 font-semibold">{routeError}</span>
           ) : (
             <span>
@@ -256,9 +256,9 @@ export default function Map() {
         </div>
         <button
           onClick={resetRoute}
-          disabled={loadingRoute}
+          disabled={loadingRoute || loadingLocation}
           className={`px-4 py-2 rounded text-white ${
-            loadingRoute
+            loadingRoute || loadingLocation
               ? "bg-gray-400 cursor-not-allowed"
               : "bg-red-500 hover:bg-red-600"
           }`}
